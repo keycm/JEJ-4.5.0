@@ -8,7 +8,7 @@ if(!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['SUPER ADMIN', 
     exit();
 }
 
-// --- NEW: EDITABLE DP APPROVAL ACTION ---
+// --- EDITABLE DP APPROVAL ACTION ---
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['approve_with_dp'])) {
     $res_id = intval($_POST['res_id']);
     $lot_id = intval($_POST['lot_id']);
@@ -81,7 +81,7 @@ if(isset($_GET['msg'])){
     if($_GET['msg'] == 'dp_verified') { $alert_msg = "Down Payment Receipt Verified and Marked as Paid!"; $alert_type = "success"; }
 }
 
-// Fetch Reservations
+// Fetch Reservations (Using r.* fetches all columns like valid_id_file, selfie_with_id, buyer_address, agent)
 $query = "SELECT r.*, u.fullname, u.email as user_email, l.block_no, l.lot_no, l.total_price, l.location 
           FROM reservations r 
           JOIN users u ON r.user_id = u.id 
@@ -102,7 +102,6 @@ $res = $conn->query($query);
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     
     <style>
-        /* ... existing styles ... */
         :root {
             --primary: #2e7d32; 
             --primary-light: #e8f5e9; 
@@ -148,7 +147,9 @@ $res = $conn->query($query);
         .status-APPROVED { background: #e8f5e9; color: #2e7d32; } 
         .status-REJECTED { background: #ffebee; color: #c62828; } 
 
-        .btn-doc { display: inline-flex; align-items: center; gap: 5px; padding: 8px 12px; background: #e0f2fe; color: #0284c7; border: 1px solid #bae6fd; border-radius: 6px; font-size: 12px; font-weight: 600; text-decoration: none; margin-right: 5px; margin-bottom: 5px; cursor: pointer; transition: 0.2s; }
+        .btn-doc { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; background: #f8fafc; color: #334155; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-weight: 600; text-decoration: none; width: 100%; cursor: pointer; transition: 0.2s; box-sizing: border-box; justify-content: center;}
+        .btn-doc:hover { background: #e0f2fe; color: #0284c7; border-color: #bae6fd; }
+
         .action-forms { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
         .btn-action { padding: 8px 12px; border:none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; color: white; display: inline-flex; align-items: center; gap: 5px; transition: 0.2s; box-shadow: var(--shadow-sm);}
         
@@ -200,9 +201,9 @@ $res = $conn->query($query);
         <div class="top-header">
             <div class="header-title">
                 <h1>Reservation Management</h1>
-                <p>Review reservations and verify GCash/Maya down payments.</p>
+                <p>Review reservations, verify documents, and process down payments.</p>
             </div>
-            </div>
+        </div>
 
         <div class="content-area">
 
@@ -226,7 +227,7 @@ $res = $conn->query($query);
                         <tr>
                             <th style="width: 25%;">Buyer Information</th>
                             <th style="width: 20%;">Property Details</th>
-                            <th style="width: 20%;">Documents (Click to View)</th>
+                            <th style="width: 20%;">Submitted Documents</th>
                             <th style="width: 10%;">Status</th>
                             <th style="width: 25%;">Actions</th>
                         </tr>
@@ -238,14 +239,27 @@ $res = $conn->query($query);
                             ?>
                             <tr style="<?= ($dp_status == 'VERIFYING') ? 'background-color: #f0f9ff;' : '' ?>">
                                 <td>
-                                    <div style="font-weight: 700; color: #263238; margin-bottom: 5px; font-size: 14px;">
+                                    <div style="font-weight: 700; color: #263238; margin-bottom: 8px; font-size: 14px;">
                                         <?= htmlspecialchars($row['fullname']) ?>
                                     </div>
-                                    <div style="font-size:12px; color:#546e7a; margin-bottom: 2px;">
-                                        <i class="fa-solid fa-phone" style="font-size:11px; color:#90a4ae; width: 15px;"></i> <?= htmlspecialchars($row['contact_number'] ?? 'N/A') ?>
+                                    <div style="font-size:12px; color:#546e7a; margin-bottom: 4px; display: flex; gap: 8px;">
+                                        <i class="fa-solid fa-phone" style="color:#90a4ae; margin-top: 2px;"></i> 
+                                        <span><?= htmlspecialchars(isset($row['contact_number']) && !empty($row['contact_number']) ? $row['contact_number'] : 'N/A') ?></span>
                                     </div>
-                                    <div style="font-size:12px; color:#546e7a; margin-bottom: 2px;">
-                                        <i class="fa-solid fa-envelope" style="font-size:11px; color:#90a4ae; width: 15px;"></i> <?= htmlspecialchars($row['email'] ?? $row['user_email']) ?>
+                                    <div style="font-size:12px; color:#546e7a; margin-bottom: 4px; display: flex; gap: 8px;">
+                                        <i class="fa-solid fa-envelope" style="color:#90a4ae; margin-top: 2px;"></i> 
+                                        <span><?= htmlspecialchars($row['email'] ?? $row['user_email']) ?></span>
+                                    </div>
+                                    
+                                    <div style="font-size:12px; color:#546e7a; margin-bottom: 4px; display: flex; gap: 8px;">
+                                        <i class="fa-solid fa-house" style="color:#90a4ae; margin-top: 2px;"></i> 
+                                        <span><?= htmlspecialchars(isset($row['buyer_address']) && !empty($row['buyer_address']) ? $row['buyer_address'] : 'Address Not Provided') ?></span>
+                                    </div>
+
+                                    <div style="font-size:12px; color:#546e7a; margin-bottom: 4px; display: flex; gap: 8px; background: #f8fafc; padding: 4px 6px; border-radius: 4px; border: 1px solid #e2e8f0; display: inline-flex; margin-top: 4px;">
+                                        <i class="fa-solid fa-user-tie" style="color:var(--primary); margin-top: 2px;"></i> 
+                                        <strong>Agent:</strong> 
+                                        <span><?= htmlspecialchars(isset($row['agent']) && !empty($row['agent']) ? $row['agent'] : 'None') ?></span>
                                     </div>
                                 </td>
 
@@ -255,9 +269,29 @@ $res = $conn->query($query);
                                 </td>
 
                                 <td>
-                                    <button class="btn-doc" onclick="showDoc('uploads/<?= htmlspecialchars($row['payment_proof'] ?? '') ?>')" title="View Proof of Payment">
-                                        <i class="fa-solid fa-receipt"></i> Proof
-                                    </button>
+                                    <div style="display: flex; flex-direction: column; gap: 6px; max-width: 150px;">
+                                        <?php if(!empty($row['payment_proof'])): ?>
+                                            <button class="btn-doc" onclick="showDoc('uploads/<?= htmlspecialchars($row['payment_proof']) ?>')" title="View Proof of Payment">
+                                                <i class="fa-solid fa-receipt" style="color: #0284c7;"></i> Fee Proof
+                                            </button>
+                                        <?php endif; ?>
+
+                                        <?php if(!empty($row['valid_id_file'])): ?>
+                                            <button class="btn-doc" onclick="showDoc('uploads/<?= htmlspecialchars($row['valid_id_file']) ?>')" title="View Valid ID">
+                                                <i class="fa-solid fa-id-card" style="color: #d97706;"></i> Valid ID
+                                            </button>
+                                        <?php endif; ?>
+
+                                        <?php if(!empty($row['selfie_with_id'])): ?>
+                                            <button class="btn-doc" onclick="showDoc('uploads/<?= htmlspecialchars($row['selfie_with_id']) ?>')" title="View Selfie with ID">
+                                                <i class="fa-solid fa-camera-retro" style="color: #16a34a;"></i> Selfie w/ ID
+                                            </button>
+                                        <?php endif; ?>
+                                        
+                                        <?php if(empty($row['payment_proof']) && empty($row['valid_id_file']) && empty($row['selfie_with_id'])): ?>
+                                            <span style="font-size: 11px; color: #94a3b8; font-style: italic;">No Documents</span>
+                                        <?php endif; ?>
+                                    </div>
                                 </td>
 
                                 <td>
@@ -378,7 +412,6 @@ $res = $conn->query($query);
             document.getElementById('verifyModal').style.display = 'none';
         }
 
-        // New Modal Logics
         function showApproveModal(resId, lotId, defaultDpAmount) {
             document.getElementById('approveResId').value = resId;
             document.getElementById('approveLotId').value = lotId;
