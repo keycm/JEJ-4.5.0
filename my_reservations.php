@@ -229,7 +229,6 @@ $reservations = $stmt->get_result();
         /* Pricing Box */
         .price-box { background: white; border: 1px solid #e2e8f0; padding: 20px; border-radius: 16px; margin-bottom: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.02); }
         .price-row { display: flex; justify-content: space-between; font-size: 0.95rem; margin-bottom: 10px; color: var(--text-gray); font-weight: 500; }
-        .price-row:last-child { margin-bottom: 0; font-size: 1.15rem; font-weight: 800; color: var(--primary); border-top: 1px solid #f1f5f9; padding-top: 12px; margin-top: 12px; }
 
         .res-card-footer { padding: 25px; border-top: 1px solid #f1f5f9; background: white; }
         
@@ -242,9 +241,8 @@ $reservations = $stmt->get_result();
         }
         .btn-pay:hover { background: var(--primary-light); transform: translateY(-2px); box-shadow: 0 8px 25px rgba(30,75,54,0.3); }
         
-        .status-msg { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; padding: 16px; border-radius: 12px; font-weight: 700; font-size: 0.95rem; }
+        .status-msg { display: flex; align-items: center; justify-content: center; gap: 15px; width: 100%; padding: 16px; border-radius: 12px; font-weight: 700; font-size: 0.95rem; }
         .status-verifying { background: #f0f9ff; color: #0369a1; border: 1px solid #bae6fd; }
-        .status-paid { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
 
         /* Modal UI */
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(8px); z-index: 1000; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.3s ease; padding: 20px; box-sizing: border-box; }
@@ -344,8 +342,22 @@ $reservations = $stmt->get_result();
             <?php if($reservations && $reservations->num_rows > 0): ?>
                 <?php while($row = $reservations->fetch_assoc()): 
                     $total = $row['total_price'];
-                    $dp_amount = $total * 0.20; // 20% down payment
+                    
+                    // Fetch required_dp, otherwise fallback to 20%
+                    $dp_amount = (!empty($row['required_dp']) && $row['required_dp'] > 0) ? $row['required_dp'] : ($total * 0.20); 
                     $dp_status = isset($row['dp_status']) ? $row['dp_status'] : 'UNPAID'; 
+
+                    // --- NEW: FETCH TRACKED PAYMENTS FROM TRANSACTIONS ---
+                    $res_id = $row['id'];
+                    $desc_like_dp = "%Down Payment%Res#{$res_id}%";
+                    $dp_query = $conn->prepare("SELECT SUM(amount) as total_paid FROM transactions WHERE type='INCOME' AND description LIKE ?");
+                    $dp_query->bind_param("s", $desc_like_dp);
+                    $dp_query->execute();
+                    $dp_paid_amount = $dp_query->get_result()->fetch_assoc()['total_paid'] ?? 0;
+
+                    $dp_remaining = $dp_amount - $dp_paid_amount;
+                    if($dp_remaining < 0) $dp_remaining = 0;
+                    // -----------------------------------------------------
                 ?>
                 <div class="res-card animate-on-scroll">
                     <div class="res-card-header">
@@ -374,25 +386,35 @@ $reservations = $stmt->get_result();
                         </ul>
 
                         <div class="price-box">
-                            <div class="price-row"><span>Property Value</span> <span>₱<?= number_format($total) ?></span></div>
-                            <div class="price-row"><span>Required Down Payment</span> <span>₱<?= number_format($dp_amount) ?></span></div>
+                            <div class="price-row"><span>Property Value (TCP)</span> <span>₱<?= number_format($total) ?></span></div>
+                            <div class="price-row"><span>Target Down Payment</span> <span>₱<?= number_format($dp_amount) ?></span></div>
+                            <div class="price-row" style="color: var(--primary);"><span>Total DP Paid</span> <span>₱<?= number_format($dp_paid_amount) ?></span></div>
+                            
+                            <div class="price-row" style="font-weight: 800; color: <?= ($dp_remaining > 0) ? '#b91c1c' : 'var(--primary)' ?>; border-top: 1px solid #f1f5f9; padding-top: 12px; margin-top: 12px;">
+                                <span>Remaining DP Balance</span> 
+                                <span>₱<?= number_format($dp_remaining) ?></span>
+                            </div>
                         </div>
-                    </div>
+                        </div>
                     
                     <div class="res-card-footer">
                         <?php if($row['status'] == 'PENDING' || $row['status'] == 'APPROVED'): ?>
                             
-                            <?php if($dp_status == 'UNPAID'): ?>
-                                <button class="btn-pay" onclick="openPaymentModal(<?= $row['id'] ?>, <?= $dp_amount ?>)">
-                                    <i class="fa-solid fa-qrcode"></i> Pay Down Payment Online
+                            <?php if($dp_remaining > 0 && $dp_status != 'VERIFYING'): ?>
+                                <button class="btn-pay" onclick="openPaymentModal(<?= $row['id'] ?>, <?= $dp_remaining ?>)">
+                                    <i class="fa-solid fa-qrcode"></i> Pay Remaining DP Online
                                 </button>
                             <?php elseif($dp_status == 'VERIFYING'): ?>
                                 <div class="status-msg status-verifying">
                                     <i class="fa-solid fa-arrows-rotate fa-spin"></i> Verifying Payment...
                                 </div>
-                            <?php elseif($dp_status == 'PAID'): ?>
-                                <div class="status-msg status-paid">
-                                    <i class="fa-solid fa-shield-check"></i> Down Payment Settled
+                            <?php elseif($dp_remaining <= 0 || $dp_status == 'PAID'): ?>
+                                <div class="status-msg" style="background: #dcfce7; color: #16a34a; border: 1px solid #bbf7d0; text-align: left;">
+                                    <i class="fa-solid fa-shield-check" style="font-size: 2rem;"></i> 
+                                    <div>
+                                        <div style="font-size: 1.1rem; font-weight: 800; margin-bottom: 2px;">Congratulations!</div>
+                                        <div style="font-size: 0.85rem; font-weight: 600;">Your downpayment is fully paid.</div>
+                                    </div>
                                 </div>
                             <?php endif; ?>
                             
@@ -454,7 +476,6 @@ $reservations = $stmt->get_result();
 
     <script>
         document.addEventListener("DOMContentLoaded", function() {
-            // Profile Dropdown Logic
             const profileBtn = document.getElementById('profileBtn');
             const profileDropdown = document.getElementById('profileDropdown');
             if (profileBtn && profileDropdown) {
@@ -469,7 +490,6 @@ $reservations = $stmt->get_result();
                 });
             }
 
-            // IntersectionObserver for scroll animations
             const observerOptions = { threshold: 0.1, rootMargin: "0px 0px -50px 0px" };
             const observer = new IntersectionObserver(function(entries, observer) {
                 entries.forEach(entry => {
@@ -483,7 +503,6 @@ $reservations = $stmt->get_result();
             document.querySelectorAll('.animate-on-scroll').forEach(el => { observer.observe(el); });
         });
 
-        // Modal Logic
         function openPaymentModal(resId, dpAmount) {
             document.getElementById('modalResId').value = resId;
             document.getElementById('modalAmountDisplay').innerText = '₱' + new Intl.NumberFormat('en-PH').format(dpAmount);
@@ -505,7 +524,6 @@ $reservations = $stmt->get_result();
             }
         });
 
-        // Custom File Upload Display Update
         function updateFileName(input) {
             const display = document.getElementById('fileDisplay');
             if (input.files && input.files[0]) {
