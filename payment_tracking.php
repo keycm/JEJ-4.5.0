@@ -54,6 +54,18 @@ if(isset($_POST['record_payment'])){
                 if($stmt->execute()) {
                     $alert_msg = "Payment of ₱" . number_format($amt, 2) . " successfully recorded!";
                     $alert_type = "success";
+
+                    // --- NEW: NOTIFY BUYER OF PAYMENT UPDATE ---
+                    $r_user = $conn->query("SELECT user_id FROM reservations WHERE id = $res_id")->fetch_assoc();
+                    if ($r_user && isset($r_user['user_id'])) {
+                        $b_uid = $r_user['user_id'];
+                        $notif_title = "Payment Received & Tracked";
+                        $notif_msg = "We have successfully recorded your $type_text of ₱" . number_format($amt, 2) . ". Thank you!";
+                        $notif_stmt = $conn->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)");
+                        $notif_stmt->bind_param("iss", $b_uid, $notif_title, $notif_msg);
+                        $notif_stmt->execute();
+                    }
+                    // -------------------------------------------
                 } else {
                     $alert_msg = "Failed to record payment. Please try again.";
                     $alert_type = "error";
@@ -69,7 +81,7 @@ if(isset($_POST['record_payment'])){
     }
 }
 
-// --- HANDLE SEND REMINDER EMAIL ---
+// --- HANDLE SEND REMINDER EMAIL & NOTIFICATION ---
 if(isset($_POST['send_reminder'])){
     $res_id = (int)$_POST['res_id'];
     $amount_due = floatval($_POST['amount_due']); 
@@ -139,8 +151,18 @@ if(isset($_POST['send_reminder'])){
             </div>";
 
             $mail->send();
-            $alert_msg = "Custom reminder email sent successfully to " . $resData['fullname'];
+            $alert_msg = "Reminder email sent and buyer notified successfully!";
             $alert_type = "success";
+
+            // --- NEW: IN-APP NOTIFICATION FOR REMINDER ---
+            $b_uid = $resData['user_id'];
+            $notif_title = "Action Required: Payment Reminder";
+            $notif_msg = "Please settle your pending $reminder_type of ₱$formatted_amount by $formatted_date.";
+            $notif_stmt = $conn->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)");
+            $notif_stmt->bind_param("iss", $b_uid, $notif_title, $notif_msg);
+            $notif_stmt->execute();
+            // ---------------------------------------------
+
         } catch (Exception $e) {
             $alert_msg = "Failed to send email. Mailer Error: {$mail->ErrorInfo}";
             $alert_type = "error";
@@ -164,7 +186,8 @@ $due_soon_count = 0;
 if($res && $res->num_rows > 0) {
     while($row = $res->fetch_assoc()){
         
-        $dp_total_required = round($row['total_price'] * 0.20, 2);
+        // Use required_dp from DB if set, otherwise fallback to 20%
+        $dp_total_required = (isset($row['required_dp']) && $row['required_dp'] > 0) ? $row['required_dp'] : round($row['total_price'] * 0.20, 2);
         
         // Use safer wildcards to tally the tracking screen amounts
         $desc_like_dp = "%Down Payment%Res#{$row['id']}%";
@@ -344,7 +367,7 @@ if($res && $res->num_rows > 0) {
                                 </td>
                                 <td>
                                     <div style="font-size: 12px; margin-bottom: 4px; color: #475569;">TCP: <strong>₱<?= number_format($row['total_price'], 2) ?></strong></div>
-                                    <div style="font-size: 12px; margin-bottom: 4px; color: #334155;">20% DP Target: <strong>₱<?= number_format($row['dp_total_required'], 2) ?></strong></div>
+                                    <div style="font-size: 12px; margin-bottom: 4px; color: #334155;">DP Target: <strong>₱<?= number_format($row['dp_total_required'], 2) ?></strong></div>
                                     <div style="font-size: 12px; margin-bottom: 4px; color: #059669; font-weight: 700;">DP Paid: ₱<?= number_format($row['dp_paid_amount'], 2) ?></div>
 
                                     <?php if(!$row['is_dp_fully_paid']): ?>
@@ -359,6 +382,8 @@ if($res && $res->num_rows > 0) {
                                 <td>
                                     <?php if($row['is_dp_fully_paid']): ?>
                                         <span class="badge badge-full"><i class="fa-solid fa-check"></i> DP Fully Paid</span>
+                                    <?php elseif(isset($row['dp_status']) && $row['dp_status'] == 'VERIFYING'): ?>
+                                        <span class="badge badge-partial" style="background: #f0f9ff; color: #0369a1; border-color: #bae6fd;"><i class="fa-solid fa-arrows-rotate fa-spin"></i> Verifying Online DP</span>
                                     <?php elseif($row['dp_paid_amount'] > 0): ?>
                                         <span class="badge badge-partial"><i class="fa-solid fa-spinner"></i> Partial DP</span>
                                     <?php else: ?>
