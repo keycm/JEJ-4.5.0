@@ -8,7 +8,30 @@ if(!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['SUPER ADMIN', 
     exit();
 }
 
-// --- NEW: VERIFY DOWN PAYMENT ACTION ---
+// --- NEW: EDITABLE DP APPROVAL ACTION ---
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['approve_with_dp'])) {
+    $res_id = intval($_POST['res_id']);
+    $lot_id = intval($_POST['lot_id']);
+    $required_dp = floatval($_POST['required_dp']);
+    
+    // Update to Approved with custom DP
+    $conn->query("UPDATE reservations SET status = 'APPROVED', required_dp = $required_dp WHERE id = $res_id");
+    
+    // Notify Buyer
+    $r = $conn->query("SELECT user_id FROM reservations WHERE id = $res_id")->fetch_assoc();
+    if ($r) {
+        $uid = $r['user_id'];
+        $msg = "Your reservation has been approved. Your Required Down Payment is ₱" . number_format($required_dp, 2) . ". Please settle it online to secure your property.";
+        $notif_stmt = $conn->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'Reservation Approved', ?)");
+        $notif_stmt->bind_param("is", $uid, $msg);
+        $notif_stmt->execute();
+    }
+    
+    header("Location: reservation.php?msg=approved");
+    exit();
+}
+
+// --- VERIFY DOWN PAYMENT ACTION ---
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['verify_dp'])) {
     $res_id = intval($_POST['res_id']);
     
@@ -53,7 +76,7 @@ if($status_filter != 'ALL'){
 $alert_msg = "";
 $alert_type = "";
 if(isset($_GET['msg'])){
-    if($_GET['msg'] == 'approved') { $alert_msg = "Reservation approved successfully!"; $alert_type = "success"; }
+    if($_GET['msg'] == 'approved') { $alert_msg = "Reservation approved with updated Down Payment Requirements!"; $alert_type = "success"; }
     if($_GET['msg'] == 'rejected') { $alert_msg = "Reservation rejected. Lot returned to inventory."; $alert_type = "error"; }
     if($_GET['msg'] == 'dp_verified') { $alert_msg = "Down Payment Receipt Verified and Marked as Paid!"; $alert_type = "success"; }
 }
@@ -79,6 +102,7 @@ $res = $conn->query($query);
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     
     <style>
+        /* ... existing styles ... */
         :root {
             --primary: #2e7d32; 
             --primary-light: #e8f5e9; 
@@ -93,7 +117,6 @@ $res = $conn->query($query);
         }
 
         body { background-color: #fafcf9; display: flex; min-height: 100vh; overflow-x: hidden; font-family: 'Inter', sans-serif; color: #37474f; margin: 0; }
-
         .sidebar { width: 260px; background: #ffffff; border-right: 1px solid var(--gray-border); display: flex; flex-direction: column; position: fixed; height: 100vh; z-index: 100; box-shadow: var(--shadow-sm); }
         .brand-box { padding: 25px; border-bottom: 1px solid var(--gray-border); display: flex; align-items: center; gap: 12px; }
         .sidebar-menu { padding: 20px 15px; flex: 1; overflow-y: auto; }
@@ -103,27 +126,10 @@ $res = $conn->query($query);
         .menu-link i { width: 20px; text-align: center; font-size: 16px; opacity: 0.8; }
         
         .main-panel { margin-left: 260px; flex: 1; padding: 0; width: calc(100% - 260px); display: flex; flex-direction: column; }
-        
         .top-header { display: flex; justify-content: space-between; align-items: center; background: #ffffff; padding: 20px 40px; border-bottom: 1px solid var(--gray-border); box-shadow: var(--shadow-sm); z-index: 50; }
         .header-title h1 { font-size: 22px; font-weight: 800; color: var(--dark); margin: 0 0 4px 0; letter-spacing: -0.5px;}
         .header-title p { color: var(--text-muted); font-size: 13px; margin: 0; }
-
-        .profile-dropdown { position: relative; cursor: pointer; }
-        .profile-trigger { display: flex; align-items: center; gap: 12px; padding: 6px 12px; border-radius: 10px; transition: background 0.2s; border: 1px solid transparent; }
-        .profile-trigger:hover { background: var(--gray-light); border-color: var(--gray-border); }
-        .profile-avatar { width: 40px; height: 40px; background: var(--primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px; box-shadow: 0 2px 4px rgba(46, 125, 50, 0.2);}
-        .profile-info strong { display: block; font-size: 13px; color: var(--dark); line-height: 1.2; }
-        .profile-info small { font-size: 11px; color: var(--text-muted); font-weight: 500; }
         
-        .dropdown-menu { display: none; position: absolute; right: 0; top: 110%; background: white; border-radius: 12px; box-shadow: var(--shadow-lg); border: 1px solid var(--gray-border); min-width: 200px; z-index: 1000; overflow: hidden; transform-origin: top right; }
-        .profile-dropdown:hover .dropdown-menu { display: block; }
-        
-        .dropdown-header { padding: 15px; border-bottom: 1px solid var(--gray-border); background: var(--gray-light); }
-        .dropdown-item { padding: 12px 16px; display: flex; align-items: center; gap: 12px; color: #455a64; text-decoration: none; font-size: 13px; font-weight: 500; transition: background 0.2s; border-left: 3px solid transparent;}
-        .dropdown-item:hover { background: var(--primary-light); color: var(--primary); border-left-color: var(--primary); }
-        .dropdown-item.text-danger { color: #d84315; }
-        .dropdown-item.text-danger:hover { background: #fbe9e7; color: #bf360c; border-left-color: #d84315; }
-
         .content-area { padding: 35px 40px; flex: 1; }
 
         .table-container { background: white; border-radius: 16px; border: 1px solid var(--gray-border); box-shadow: var(--shadow-sm); overflow: hidden; margin-bottom: 30px; }
@@ -136,31 +142,26 @@ $res = $conn->query($query);
         .tabs { display: flex; gap: 12px; margin-bottom: 25px; flex-wrap: wrap;}
         .tab-link { padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; text-decoration: none; color: #455a64; background: white; border: 1px solid var(--gray-border); transition: 0.2s; box-shadow: var(--shadow-sm);}
         .tab-link.active { background: var(--primary); color: white; border-color: var(--primary); box-shadow: 0 4px 10px rgba(46, 125, 50, 0.2); }
-        .tab-link:hover:not(.active) { background: var(--gray-light); color: var(--primary); }
-
+        
         .status-badge { padding: 6px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.3px; display: inline-block;}
         .status-PENDING { background: #fff3e0; color: #e65100; } 
         .status-APPROVED { background: #e8f5e9; color: #2e7d32; } 
         .status-REJECTED { background: #ffebee; color: #c62828; } 
 
         .btn-doc { display: inline-flex; align-items: center; gap: 5px; padding: 8px 12px; background: #e0f2fe; color: #0284c7; border: 1px solid #bae6fd; border-radius: 6px; font-size: 12px; font-weight: 600; text-decoration: none; margin-right: 5px; margin-bottom: 5px; cursor: pointer; transition: 0.2s; }
-        .btn-doc:hover { background: #bae6fd; color: #0369a1; }
-        
         .action-forms { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
         .btn-action { padding: 8px 12px; border:none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; color: white; display: inline-flex; align-items: center; gap: 5px; transition: 0.2s; box-shadow: var(--shadow-sm);}
         
         .btn-approve { background: #10b981; } .btn-approve:hover { background: #059669; transform: translateY(-1px); } 
         .btn-reject { background: #ef4444; } .btn-reject:hover { background: #dc2626; transform: translateY(-1px); } 
-        .btn-receipt { background: #64748b; color: white; text-decoration:none; } .btn-receipt:hover { background: #475569; transform: translateY(-1px); } 
-        .btn-terms { background: #3b82f6; color: white; text-decoration:none; } .btn-terms:hover { background: #2563eb; transform: translateY(-1px); } 
-        .btn-verify-dp { background: #0284c7; } .btn-verify-dp:hover { background: #0369a1; transform: translateY(-1px); } 
+        .btn-receipt { background: #64748b; color: white; text-decoration:none; } .btn-terms { background: #3b82f6; color: white; text-decoration:none; } 
+        .btn-verify-dp { background: #0284c7; } 
 
         /* Modals */
         .doc-modal { display: none; position: fixed; z-index: 2000; inset: 0; background-color: rgba(0,0,0,0.85); backdrop-filter: blur(3px); align-items: center; justify-content: center; }
         .doc-modal img { max-width: 90%; max-height: 90vh; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); object-fit: contain; }
         .doc-close { position: absolute; top: 20px; right: 30px; color: white; font-size: 40px; cursor: pointer; transition: 0.2s; }
         .doc-close:hover { color: #d84315; transform: scale(1.1); }
-        
         .verify-modal-content { display: flex; flex-direction: column; align-items: center; gap: 15px; }
         .verify-card { background: white; padding: 25px; border-radius: 12px; width: 100%; max-width: 400px; text-align: center; }
     </style>
@@ -196,44 +197,12 @@ $res = $conn->query($query);
     </div>
 
     <div class="main-panel">
-        
         <div class="top-header">
             <div class="header-title">
                 <h1>Reservation Management</h1>
                 <p>Review reservations and verify GCash/Maya down payments.</p>
             </div>
-            
-            <div style="display: flex; align-items: center; gap: 20px;">
-                <a href="notifications.php" style="position: relative; color: #607d8b; font-size: 20px; text-decoration: none; transition: color 0.3s ease;" title="Notifications">
-                    <i class="fa-regular fa-bell"></i>
-                    <?php if($unread_count > 0): ?>
-                        <span style="position: absolute; top: -2px; right: -4px; width: 10px; height: 10px; background-color: #E53E3E; border-radius: 50%; border: 2px solid white;"></span>
-                    <?php endif; ?>
-                </a>
-                
-                <div style="width: 1px; height: 30px; background: var(--gray-border);"></div>
-
-                <div class="profile-dropdown">
-                    <div class="profile-trigger">
-                        <div class="profile-avatar"><?= strtoupper(substr($_SESSION['fullname'] ?? 'A', 0, 1)) ?></div>
-                        <div class="profile-info">
-                            <strong><?= htmlspecialchars($_SESSION['fullname'] ?? 'Administrator') ?></strong>
-                            <small><?= $_SESSION['role'] ?? 'System Admin' ?> <i class="fa-solid fa-chevron-down" style="font-size: 9px; margin-left: 3px;"></i></small>
-                        </div>
-                    </div>
-                    
-                    <div class="dropdown-menu">
-                        <div class="dropdown-header">
-                            <strong style="display: block; font-size: 13px; color: var(--dark);">JEJ Admin System</strong>
-                            <span style="font-size: 11px; color: var(--text-muted);">Logged in successfully</span>
-                        </div>
-                        <a href="settings.php" class="dropdown-item"><i class="fa-solid fa-gear" style="width:16px;"></i> Account Settings</a>
-                        <div style="height: 1px; background: var(--gray-border); margin: 5px 0;"></div>
-                        <a href="logout.php" class="dropdown-item text-danger"><i class="fa-solid fa-arrow-right-from-bracket" style="width:16px;"></i> Secure Logout</a>
-                    </div>
-                </div>
             </div>
-        </div>
 
         <div class="content-area">
 
@@ -278,29 +247,16 @@ $res = $conn->query($query);
                                     <div style="font-size:12px; color:#546e7a; margin-bottom: 2px;">
                                         <i class="fa-solid fa-envelope" style="font-size:11px; color:#90a4ae; width: 15px;"></i> <?= htmlspecialchars($row['email'] ?? $row['user_email']) ?>
                                     </div>
-                                    <div style="font-size:12px; color:#546e7a; margin-bottom: 2px;">
-                                        <i class="fa-solid fa-location-dot" style="font-size:11px; color:#90a4ae; width: 15px;"></i> <?= htmlspecialchars($row['address'] ?? 'N/A') ?>
-                                    </div>
-                                    <div style="font-size:12px; color:#546e7a;">
-                                        <i class="fa-solid fa-user-tie" style="font-size:11px; color:#90a4ae; width: 15px;"></i> Agent: <span style="font-weight:600;"><?= htmlspecialchars($row['agent_name'] ?? 'N/A') ?></span>
-                                    </div>
                                 </td>
 
                                 <td>
                                     <div style="font-weight: 700; color: var(--primary);">Block <?= htmlspecialchars($row['block_no']) ?>, Lot <?= htmlspecialchars($row['lot_no']) ?></div>
-                                    <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;"><?= htmlspecialchars($row['location']) ?></div>
                                     <div style="font-weight: 700; font-size: 13px; margin-top: 6px; color: #263238;">₱<?= number_format($row['total_price']) ?></div>
                                 </td>
 
                                 <td>
                                     <button class="btn-doc" onclick="showDoc('uploads/<?= htmlspecialchars($row['payment_proof'] ?? '') ?>')" title="View Proof of Payment">
                                         <i class="fa-solid fa-receipt"></i> Proof
-                                    </button>
-                                    <button class="btn-doc" onclick="showDoc('uploads/<?= htmlspecialchars($row['valid_id_file'] ?? '') ?>')" title="View Valid ID">
-                                        <i class="fa-solid fa-id-card"></i> ID
-                                    </button>
-                                    <button class="btn-doc" onclick="showDoc('uploads/<?= htmlspecialchars($row['selfie_with_id'] ?? '') ?>')" title="View Selfie">
-                                        <i class="fa-solid fa-camera"></i> Selfie
                                     </button>
                                 </td>
 
@@ -333,12 +289,10 @@ $res = $conn->query($query);
                                         <?php endif; ?>
 
                                         <?php if($row['status'] == 'PENDING'): ?>
-                                            <form action="actions.php" method="POST" style="margin: 0;" onsubmit="return confirm('Approve this reservation? This will record the income AND automatically email the buyer about their 20-day down payment deadline.')">
-                                                <input type="hidden" name="action" value="approve_res">
-                                                <input type="hidden" name="res_id" value="<?= $row['id'] ?>">
-                                                <input type="hidden" name="lot_id" value="<?= $row['lot_id'] ?>">
-                                                <button class="btn-action btn-approve" title="Approve"><i class="fa-solid fa-check"></i> Approve</button>
-                                            </form>
+                                            <button type="button" class="btn-action btn-approve" onclick="showApproveModal(<?= $row['id'] ?>, <?= $row['lot_id'] ?>, <?= $row['total_price'] * 0.20 ?>)" title="Approve">
+                                                <i class="fa-solid fa-check"></i> Approve
+                                            </button>
+
                                             <form action="actions.php" method="POST" style="margin: 0;" onsubmit="return confirm('Reject this reservation?')">
                                                 <input type="hidden" name="action" value="reject_res">
                                                 <input type="hidden" name="res_id" value="<?= $row['id'] ?>">
@@ -384,8 +338,29 @@ $res = $conn->query($query);
         </div>
     </div>
 
+    <div id="approveModal" class="doc-modal">
+        <span class="doc-close" onclick="closeApprove()">&times;</span>
+        <div class="verify-modal-content" onclick="event.stopPropagation()">
+            <form action="reservation.php" method="POST" class="verify-card">
+                <input type="hidden" name="res_id" id="approveResId">
+                <input type="hidden" name="lot_id" id="approveLotId">
+                
+                <h3 style="margin: 0 0 5px 0; color:#1e293b; font-family:'Inter', sans-serif;">Approve Reservation</h3>
+                <p style="font-size: 13px; color:#64748b; margin-bottom: 20px;">Set the required down payment to finalize this reservation approval.</p>
+                
+                <div style="text-align: left; margin-bottom: 20px;">
+                    <label style="font-size: 13px; font-weight: 600; color: #455a64; display: block; margin-bottom: 5px;">Required Down Payment (₱)</label>
+                    <input type="number" step="0.01" name="required_dp" id="approveDpAmount" required style="width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 16px; font-weight: 700; color: var(--primary);">
+                </div>
+
+                <button type="submit" name="approve_with_dp" class="btn-action btn-approve" style="width: 100%; padding: 14px; font-size: 15px; justify-content: center;">
+                    <i class="fa-solid fa-check-double"></i> Confirm & Approve
+                </button>
+            </form>
+        </div>
+    </div>
+
     <script>
-        // Normal Documents Modal
         function showDoc(src) {
             document.getElementById('docImage').src = src;
             document.getElementById('docModal').style.display = 'flex';
@@ -394,7 +369,6 @@ $res = $conn->query($query);
             document.getElementById('docModal').style.display = 'none';
         }
 
-        // Verify DP Receipt Modal
         function showVerifyModal(src, resId) {
             document.getElementById('verifyImage').src = src;
             document.getElementById('verifyResId').value = resId;
@@ -404,8 +378,19 @@ $res = $conn->query($query);
             document.getElementById('verifyModal').style.display = 'none';
         }
 
+        // New Modal Logics
+        function showApproveModal(resId, lotId, defaultDpAmount) {
+            document.getElementById('approveResId').value = resId;
+            document.getElementById('approveLotId').value = lotId;
+            document.getElementById('approveDpAmount').value = defaultDpAmount.toFixed(2);
+            document.getElementById('approveModal').style.display = 'flex';
+        }
+        function closeApprove() {
+            document.getElementById('approveModal').style.display = 'none';
+        }
+
         document.addEventListener('keydown', function(e){
-            if(e.key === "Escape") { closeDoc(); closeVerify(); }
+            if(e.key === "Escape") { closeDoc(); closeVerify(); closeApprove(); }
         });
     </script>
 
